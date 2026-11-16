@@ -1,0 +1,822 @@
+{
+  "spec_id": "crew-reviewer-split",
+  "version": "1.0.0",
+  "date": "2026-11-17",
+  "status": "planned",
+  "title": "crew 前后端审阅规格",
+  "project": "D:\\Codex project\\co-work\\crew",
+  "baseline": "SPEC.md",
+  "implementation_status": "本文件为待实现规格；当前程序仍使用单个 reviewer。",
+  "scope": {
+    "goal": "将 reviewer 拆分为前端、后端两种角色，分别审阅同轮实现，由程序汇总并驱动修改循环或可选人工审核。",
+    "deliverables": [
+      "任务单配置",
+      "两份默认提示词",
+      "独立审阅记录",
+      "结论汇总",
+      "断点续跑",
+      "可选人工审核",
+      "命令行和报告更新",
+      "必要验收"
+    ],
+    "execution_mode": "sequential",
+    "review_order": [
+      "frontend",
+      "backend"
+    ],
+    "builder_count": 1,
+    "presentation_ui_in_scope": false,
+    "rerun_all_enabled_reviewers_each_round": true
+  },
+  "roles": {
+    "designer": {
+      "permission": "read",
+      "responsibility": "阅读项目，输出设计与验收方案",
+      "required_when": "flow 包含 design"
+    },
+    "builder": {
+      "permission": "write",
+      "responsibility": "按设计、两位审阅者的汇总意见和人工意见修改代码，补充必要测试",
+      "required": true
+    },
+    "reviewer_frontend": {
+      "scope": "frontend",
+      "permission": "read",
+      "responsibilities": [
+        "页面和交互符合目标",
+        "加载、空数据、成功与错误状态",
+        "响应式布局",
+        "截图溢出、重叠和截断",
+        "任务范围内的可访问性",
+        "前端调用与接口契约一致性"
+      ]
+    },
+    "reviewer_backend": {
+      "scope": "backend",
+      "permission": "read",
+      "responsibilities": [
+        "业务规则和边界条件",
+        "输入校验和错误返回",
+        "数据读写与事务一致性",
+        "权限与敏感数据处理",
+        "必要单元测试和集成测试",
+        "与本次目标直接相关且有依据的性能问题"
+      ]
+    },
+    "shared_review_rules": {
+      "common_checklist_required": true,
+      "cross_domain_findings": "保留双方意见及来源",
+      "not_applicable": "说明项目不涉及该领域的具体依据",
+      "missing_required_evidence_verdict": "REVISE"
+    }
+  },
+  "task_configuration": {
+    "input_format": "沿用现有 YAML 任务单；以下 example 用 JSON 对象表达字段和值。",
+    "review_stage_key": "review",
+    "enabled_reviewers_source": "roles 中存在的 reviewer_frontend、reviewer_backend",
+    "minimum_reviewers": 1,
+    "allowed_reviewer_sets": [
+      [
+        "reviewer_frontend"
+      ],
+      [
+        "reviewer_backend"
+      ],
+      [
+        "reviewer_frontend",
+        "reviewer_backend"
+      ]
+    ],
+    "freeze_reviewers_from_task_snapshot": true,
+    "allowed_tools": [
+      "claude",
+      "codex",
+      "agy",
+      "mock"
+    ],
+    "model_optional": true,
+    "model_default": "所选工具的默认型号",
+    "same_model_for_both_reviewers_allowed": true,
+    "validation_rules": [
+      "builder 必填；reviewer_frontend、reviewer_backend 至少一个存在。design 步骤仍要求 designer。",
+      "tool 继续限定为 claude、codex、agy、mock；model 写入时须是非空文字。",
+      "双审阅配置与旧 roles.reviewer 互斥，混用时报出冲突字段及修改方式。",
+      "flow 继续接受 design、approve 和一个 loop；loop 仍为 build、可选 check、review。子审阅步骤由引擎展开。",
+      "review_checklist 支持对象形式，已知键为 common、frontend、backend，各值均为文字数组。缺省为空数组。",
+      "原有数组形式仍表示共同清单。前端实际收到 common 加 frontend；后端收到 common 加 backend。designer 与 builder 收到 common 加所有已启用领域的清单，领域按 reviewOrder 排列。各份清单均保留顺序，重复文字按完全相同的字符串去重。",
+      "某领域清单非空而未配置对应审阅者时，报出字段名，要求配置角色或移除该领域清单。",
+      "builder 与任一审阅者使用相同的 tool 和 model 组合时分别警告；前后端审阅者使用同一组合合法。",
+      "不认识的字段继续给出带路径的警告。human_review 和停止条件沿用现有校验。"
+    ],
+    "checklist_distribution": {
+      "reviewer_frontend": [
+        "common",
+        "frontend"
+      ],
+      "reviewer_backend": [
+        "common",
+        "backend"
+      ],
+      "designer": "common 加 review_order 中所有已启用领域",
+      "builder": "common 加 review_order 中所有已启用领域",
+      "deduplication": "完全相同字符串去重，保留第一次出现的顺序",
+      "legacy_array": "作为 common 清单",
+      "unconfigured_scope_with_nonempty_checklist": "validation_error"
+    },
+    "example": {
+      "goal": "给现有任务管理项目增加 CSV 导出。前端提供导出按钮、加载与错误反馈，390 像素宽度下可用。后端按约定字段导出，正确处理中文、逗号、引号和换行。补充必要测试。",
+      "roles": {
+        "designer": {
+          "tool": "codex",
+          "model": "gpt-6-astra"
+        },
+        "builder": {
+          "tool": "agy",
+          "model": "claude-sonnet-5-5-medium"
+        },
+        "reviewer_frontend": {
+          "tool": "agy",
+          "model": "gemini-4-argon-medium"
+        },
+        "reviewer_backend": {
+          "tool": "codex",
+          "model": "gpt-6.1-sol"
+        }
+      },
+      "flow": [
+        "design",
+        {
+          "loop": [
+            "build",
+            "check",
+            "review"
+          ]
+        }
+      ],
+      "human_review": false,
+      "checks": {
+        "commands": [
+          "node --test"
+        ],
+        "screenshots": [
+          {
+            "url": "index.html",
+            "width": 1280
+          },
+          {
+            "url": "index.html",
+            "width": 390
+          }
+        ]
+      },
+      "review_checklist": {
+        "common": [
+          "功能符合目标与设计，检查命令全部通过"
+        ],
+        "frontend": [
+          "导出按钮可用，加载与错误反馈清晰",
+          "390 像素截图中没有横向溢出或按钮重叠"
+        ],
+        "backend": [
+          "导出字段与顺序符合约定",
+          "中文、逗号、引号和换行有测试覆盖"
+        ]
+      },
+      "stop_when": {
+        "max_hours": 4,
+        "max_rounds": 6,
+        "step_timeout_minutes": 30,
+        "stall_rounds": 2
+      }
+    },
+    "design_approval_option": "需要先批准设计时，在 flow 的 design 后、loop 前插入 approve。"
+  },
+  "execution": {
+    "round_steps": [
+      "build",
+      "commit",
+      "check_if_configured",
+      "review_frontend_if_enabled",
+      "review_backend_if_enabled",
+      "decide"
+    ],
+    "continue_remaining_reviewers_after": [
+      "REVISE",
+      "BLOCKED"
+    ],
+    "runtime_failure": "额度、失败、超时、总时间耗尽或中断按现有停止规则处理，保存角色断点。",
+    "unconfigured_reviewer": "跳过，不伪造 APPROVED 记录。",
+    "independence": {
+      "fresh_session_per_reviewer": true,
+      "same_round_other_reviewer_output_in_prompt": false,
+      "shared_inputs": [
+        "reviewCommit",
+        "累计 diff",
+        "本轮检查结果"
+      ],
+      "previous_round_aggregate_visible": true
+    },
+    "version_guard": {
+      "record": "round.reviewCommit 为本轮构建提交的完整提交 ID",
+      "check_before": [
+        "每位审阅者首次调用",
+        "每位审阅者续跑"
+      ],
+      "requirements": [
+        "HEAD 等于 reviewCommit",
+        "参与审阅的项目文件没有未提交改动",
+        "运行目录和检查产物沿用现有忽略规则"
+      ],
+      "checks_modified_project_code": "停止",
+      "mismatch_action": "停止并保留已有意见和断点；提示恢复该提交与干净工作区后续跑，或开启新运行。",
+      "reuse_results_across_versions": false
+    },
+    "completion_boundary": "原文、解析结果以及 completed 状态均已落盘。保存完成前中断的调用可重做。",
+    "atomic_checkpoint": "该位完成状态与 nextStep 一起原子落盘。",
+    "approved_transition": [
+      "report",
+      "approved"
+    ],
+    "revise_transition": "下一轮 build",
+    "blocked_transition": {
+      "status": "stopped",
+      "reason": "blocked"
+    }
+  },
+  "prompts": {
+    "override_mode": "项目同名文件完整覆盖内置模板",
+    "templates": {
+      "reviewer_frontend": {
+        "builtin_path": "prompts/reviewer_frontend.md",
+        "project_override_path": ".crew/prompts/reviewer_frontend.md",
+        "content": "你是本项目的前端审阅者。这是第 {{round}} 轮。\n你只读不写，负责判断前端实现是否达到目标与设计。\n\n## 目标\n{{goal}}\n\n## 项目决议\n阅读文件并遵守 Active 条目。\n{{decisions}}\n\n## 设计\n{{design_path}}\n\n## 本任务累计改动\n{{diff_path}}\n\n## 检查结果\n{{check_path}}\n\n## 页面截图\n{{screenshot_paths}}\n\n## 上一轮汇总或人工意见\n{{prev_review_path}}\n\n## 格式提醒\n{{malformed_note}}\n\n## 验收清单\n{{checklist}}\n\n## 审阅要求\n阅读完整相关源文件，直接打开给出的截图。\n重点检查交互、状态、响应式布局、任务范围内的可访问性和接口接入。\n终端检查与截图结果由调度器提供，优先使用文件、目录和图片读取工具。\n必须修改项应有具体位置、可复现问题或缺失证据，以及修好标准。\n命名和风格建议单列，目标与设计之外的扩展不作为退回条件。\n\n## 输出格式\n依次输出「验收清单」「必须修改」「建议」「结论」。\n清单逐条写判断及依据；必须修改项编号，没有则写「无」。\n最后一行完全等于以下三者之一：\nVERDICT: APPROVED\nVERDICT: REVISE\nVERDICT: BLOCKED"
+      },
+      "reviewer_backend": {
+        "builtin_path": "prompts/reviewer_backend.md",
+        "project_override_path": ".crew/prompts/reviewer_backend.md",
+        "content": "你是本项目的后端审阅者。这是第 {{round}} 轮。\n你只读不写，负责判断后端与业务逻辑是否达到目标与设计。\n\n## 目标\n{{goal}}\n\n## 项目决议\n阅读文件并遵守 Active 条目。\n{{decisions}}\n\n## 设计\n{{design_path}}\n\n## 本任务累计改动\n{{diff_path}}\n\n## 检查结果\n{{check_path}}\n\n## 上一轮汇总或人工意见\n{{prev_review_path}}\n\n## 格式提醒\n{{malformed_note}}\n\n## 验收清单\n{{checklist}}\n\n## 审阅要求\n阅读完整相关源文件，结合检查记录核对测试证据。\n重点检查业务规则、边界、接口契约、数据一致性、权限与错误处理。\n涉及前端调用契约时，一并读取相关调用代码。\n终端检查由调度器执行，优先使用文件和目录读取工具。\n必须修改项应有具体位置、可复现问题或缺失证据，以及修好标准。\n命名和风格建议单列，目标与设计之外的扩展不作为退回条件。\n\n## 输出格式\n依次输出「验收清单」「必须修改」「建议」「结论」。\n清单逐条写判断及依据；必须修改项编号，没有则写「无」。\n最后一行完全等于以下三者之一：\nVERDICT: APPROVED\nVERDICT: REVISE\nVERDICT: BLOCKED"
+      }
+    },
+    "new_placeholder": {
+      "review_scope": [
+        "frontend",
+        "backend"
+      ]
+    },
+    "shared_inputs": [
+      "goal",
+      "decisions",
+      "design_path",
+      "round",
+      "diff_path",
+      "check_path",
+      "checklist",
+      "prev_review_path",
+      "malformed_note"
+    ],
+    "frontend_extra_inputs": [
+      "screenshot_paths"
+    ],
+    "optional_input_rule": "每个可选输入放在独立小节；空值沿用现有规则移除整个小节。",
+    "previous_review_path": {
+      "normal": "上一轮汇总",
+      "human_revision": "包含人工意见及原汇总路径的文件"
+    },
+    "malformed_note": {
+      "reviewer": "本角色上一轮的格式问题",
+      "builder": "所有相关角色的格式问题"
+    },
+    "verdict_meaning": {
+      "APPROVED": "本角色负责的清单满足要求",
+      "REVISE": "存在必须修改项或缺失的必要证据",
+      "BLOCKED": "目标或设计存在继续实现无法解决的冲突，并说明需要人工决定的事项"
+    },
+    "legacy_template": "prompts/reviewer.md 继续供旧单审阅配置使用。"
+  },
+  "aggregation": {
+    "implementation": "deterministic_code",
+    "additional_model_call": false,
+    "parser": {
+      "function": "parseVerdict",
+      "line": "最后一个非空行",
+      "normalization": "去掉两端空格与现有解析器支持的 Markdown 标记",
+      "accepted_lines": [
+        "VERDICT: APPROVED",
+        "VERDICT: REVISE",
+        "VERDICT: BLOCKED"
+      ],
+      "malformed_result": {
+        "verdict": "REVISE",
+        "malformed": true
+      }
+    },
+    "requires_all_enabled_reviews_completed": true,
+    "decision_rules_in_order": [
+      {
+        "when": "存在未完成的已启用审阅者",
+        "effective_verdict": null,
+        "action": "不生成有效通过结论"
+      },
+      {
+        "when": "任一已完成审阅者给出 BLOCKED",
+        "model_verdict": "BLOCKED",
+        "effective_verdict": "BLOCKED",
+        "action": "stopped/blocked"
+      },
+      {
+        "when": "任一角色连续两轮格式异常",
+        "action": "stopped/review_malformed，并记录该角色"
+      },
+      {
+        "when": "任一角色为 REVISE 或格式异常",
+        "model_verdict": "REVISE",
+        "effective_verdict": "REVISE"
+      },
+      {
+        "when": "所有已启用角色为 APPROVED 且 checksPassed 为 false",
+        "model_verdict": "APPROVED",
+        "effective_verdict": "REVISE",
+        "reason": "审阅通过但检查未通过"
+      },
+      {
+        "when": "所有已启用角色为 APPROVED 且已配置检查通过",
+        "model_verdict": "APPROVED",
+        "effective_verdict": "APPROVED"
+      },
+      {
+        "when": "所有已启用角色为 APPROVED 且未配置 check",
+        "model_verdict": "APPROVED",
+        "effective_verdict": "APPROVED",
+        "reason": "未运行检查，沿用基础规格"
+      }
+    ],
+    "single_reviewer": "使用该位结论，应用相同检查失败、格式异常与停止规则。",
+    "runtime_stop_precedence": "执行层额度、失败、超时、总时间或中断先按现有停止规则处理。",
+    "completed_round_stop_precedence": [
+      "BLOCKED",
+      "任一角色连续两轮格式异常",
+      "正常 APPROVED/REVISE"
+    ],
+    "malformed_streak": {
+      "tracked_per_scope": true,
+      "stop_after_consecutive_rounds": 2,
+      "source": "已落盘的逐轮完成结果",
+      "recompute_instead_of_increment_on_replay": true,
+      "incomplete_records_count_as_new_round": false,
+      "alternating_scope_errors_trigger_stop": false
+    },
+    "failed_checks_can_approve": false,
+    "preserve_original_role_verdicts": true
+  },
+  "review_artifacts": {
+    "raw_frontend": "reviews/review-N-frontend.md",
+    "raw_backend": "reviews/review-N-backend.md",
+    "aggregate": "reviews/review-N.md",
+    "human_revision": "reviews/human-review-N.md",
+    "aggregate_sections_in_order": [
+      "本轮提交与检查路径",
+      "各角色结论、格式状态和必须修改条数",
+      "前端原文",
+      "后端原文",
+      "检查失败覆盖说明",
+      "最终有效结论"
+    ],
+    "aggregate_last_line": "VERDICT: <APPROVED|REVISE|BLOCKED>",
+    "unconfigured_scope_display": "未配置",
+    "findings": {
+      "id_examples": [
+        "frontend-1",
+        "backend-1"
+      ],
+      "preserve_scope_and_original_number": true,
+      "semantic_deduplication": false,
+      "total_required_fixes": "各角色条数之和，同时展示分项"
+    },
+    "builder_next_round_input": "上一轮汇总或人工意见文件，包含双方必须修改项及失败检查。",
+    "conflicting_findings": "依据设计与 Active 决议说明处理理由；契约或目标确需人工选择时由审阅者给出 BLOCKED。",
+    "git_round_rules": [
+      "每轮一次构建提交",
+      "沿用累计 diff"
+    ]
+  },
+  "state_and_recovery": {
+    "reviewOrder": "从任务快照确定的有序 scope 列表",
+    "new_next_steps": [
+      "review_frontend",
+      "review_backend"
+    ],
+    "role_statuses": [
+      "pending",
+      "running",
+      "completed"
+    ],
+    "inFlight_fields": [
+      "step",
+      "role",
+      "attempt",
+      "stepDir"
+    ],
+    "step_directory_examples": [
+      "steps/03-review-frontend",
+      "steps/04-review-backend"
+    ],
+    "step_numbering": "沿用现有递增步骤计数器",
+    "role_record_fields": [
+      "status",
+      "tool",
+      "model",
+      "verdict",
+      "malformed",
+      "requiredFixes",
+      "reviewPath"
+    ],
+    "pending_record": "保存配置的 tool、model，其他结果字段为 null；调用开始后保存 running。",
+    "round_aggregate_fields": [
+      "reviewPath",
+      "modelVerdict",
+      "verdict",
+      "requiredFixes"
+    ],
+    "path_validation": "审阅路径沿用现有路径表示并验证位于项目内。",
+    "recovery_rules": [
+      {
+        "checkpoint": "前端完成，后端中断",
+        "resume": "只执行尚未完成的后端"
+      },
+      {
+        "checkpoint": "所有审阅者完成，汇总或 decide 中断",
+        "resume": "只重做汇总与判定，不再调用审阅模型"
+      },
+      {
+        "checkpoint": "某位调用失败重试",
+        "resume": "保留另一位已完成结果，不回滚构建工作区"
+      },
+      {
+        "checkpoint": "角色输出尚未完整落盘",
+        "resume": "该角色允许重新调用"
+      }
+    ],
+    "reuse_existing_policies": [
+      "30 秒后重试",
+      "超时重试",
+      "额度停止",
+      "总活跃时间预算",
+      "Ctrl+C",
+      "进程树清理",
+      "项目锁",
+      "原子状态"
+    ],
+    "active_time_includes_both_reviewers": true,
+    "preserve_outputs_and_checkpoint_on_stop": true,
+    "example": {
+      "round": 2,
+      "nextStep": "review_backend",
+      "reviewOrder": [
+        "frontend",
+        "backend"
+      ],
+      "malformedCounts": {
+        "frontend": 0,
+        "backend": 0
+      },
+      "rounds": [
+        {
+          "n": 2,
+          "reviewCommit": "<full-build-commit-id>",
+          "checksPassed": true,
+          "reviews": {
+            "frontend": {
+              "status": "completed",
+              "tool": "agy",
+              "model": "gemini-4-argon-medium",
+              "verdict": "APPROVED",
+              "malformed": false,
+              "requiredFixes": 0,
+              "reviewPath": "reviews/review-2-frontend.md"
+            },
+            "backend": {
+              "status": "pending",
+              "tool": "codex",
+              "model": "gpt-6.1-sol",
+              "verdict": null,
+              "malformed": null,
+              "requiredFixes": null,
+              "reviewPath": null
+            }
+          },
+          "reviewPath": null,
+          "modelVerdict": null,
+          "verdict": null,
+          "requiredFixes": null
+        }
+      ]
+    }
+  },
+  "human_review": {
+    "configuration_field": "human_review",
+    "default": false,
+    "disabled": {
+      "APPROVED": "结束",
+      "REVISE": "自动进入下一轮 build"
+    },
+    "enabled": {
+      "pause_when": "全部已启用审阅者完成并生成正常汇总后",
+      "approvalStage": "review",
+      "bypass_gate_for_stops": [
+        "BLOCKED",
+        "连续格式异常"
+      ],
+      "approve_command": "crew approve",
+      "approve_effect": {
+        "REVISE": "接受退回结论，进入下一轮修改",
+        "APPROVED": "已配置检查通过后结束；未配置 check 时沿用基础规格"
+      },
+      "override_reviewer_revise_or_failed_checks": false,
+      "revise_command": "crew revise --note <人工意见>",
+      "revise_effect": "保存人工意见及原汇总路径，下一轮 builder 和所有已启用审阅者通过 prev_review_path 读取。",
+      "preserve_raw_and_aggregate": true
+    },
+    "design_approval": "flow 中的 approve 独立控制设计批准。"
+  },
+  "cli_and_reporting": {
+    "init": "新示例默认包含前后端角色和分域清单。",
+    "validate": "打印完整配置与启用的审阅顺序。",
+    "dry_run": "展示两位审阅顺序；有 design 时首个提示词预览仍为设计。",
+    "status": [
+      "当前具体审阅步骤",
+      "各角色 pending/running/completed",
+      "各角色已返回结论",
+      "汇总结论",
+      "人工等待时 approve/revise 操作指引"
+    ],
+    "REPORT.md": [
+      "各角色结论",
+      "各角色必须修改条数",
+      "检查结果",
+      "有效结论",
+      "各原文、汇总、人工意见路径"
+    ],
+    "events_and_meta": "角色与步骤可区分 frontend/backend。",
+    "notifications": {
+      "policy": "沿用最终状态通知",
+      "human_wait_message": "等待人工确认"
+    }
+  },
+  "legacy_migration": {
+    "legacy_role": "roles.reviewer",
+    "normalized_scope": "general",
+    "mixed_legacy_and_typed_roles": "validation_error",
+    "legacy_behavior": [
+      "使用 reviewer.md",
+      "原数组清单",
+      "review-N.md 保留为原始意见",
+      "保持现有单审阅行为"
+    ],
+    "enable_typed_reviewers": "修改任务单为新角色配置后开启新运行。",
+    "existing_runs": [
+      "保留 task.yaml 快照和历史文件",
+      "缺少 reviewOrder/reviews 时从快照和旧字段构造 general 内存视图",
+      "沿用现有 nextStep",
+      "下一次 checkpoint 可补齐新字段",
+      "已完成步骤不重复执行",
+      "过去的原文不改写"
+    ]
+  },
+  "implementation": {
+    "modules": [
+      {
+        "path": "src/tasksheet.js",
+        "changes": [
+          "校验新角色",
+          "校验分域清单与互斥规则",
+          "生成审阅计划和角色清单"
+        ]
+      },
+      {
+        "path": "src/prompts.js",
+        "changes": [
+          "支持两个新角色模板",
+          "支持 review_scope",
+          "保留覆盖、空小节和路径规则"
+        ]
+      },
+      {
+        "path": "src/review.js",
+        "new": true,
+        "changes": [
+          "结论解析",
+          "逐角色格式计数",
+          "确定性汇总",
+          "汇总文档生成"
+        ]
+      },
+      {
+        "path": "src/engine.js",
+        "changes": [
+          "展开审阅阶段",
+          "逐位 checkpoint",
+          "版本核对",
+          "断点续跑",
+          "汇总后人工门",
+          "修改循环"
+        ]
+      },
+      {
+        "path": "src/runlog.js",
+        "changes": [
+          "原子保存角色记录和汇总",
+          "沿用步骤编号与项目锁"
+        ]
+      },
+      {
+        "path": "src/cli.js",
+        "changes": [
+          "更新 init、validate、dry-run、status"
+        ]
+      },
+      {
+        "path": "prompts/",
+        "changes": [
+          "两份默认模板"
+        ]
+      },
+      {
+        "path": "README.md",
+        "changes": [
+          "任务示例",
+          "角色和提示词配置",
+          "操作与迁移说明"
+        ]
+      },
+      {
+        "path": "test/",
+        "changes": [
+          "输入、模板、汇总、恢复、人工门及旧任务回归"
+        ]
+      }
+    ],
+    "review_module_interfaces": [
+      {
+        "signature": "getReviewPlan(sheet)",
+        "returns": "有序 scope、role、角色配置列表"
+      },
+      {
+        "signature": "getReviewChecklist(sheet, scope)",
+        "returns": "按角色范围合并、去重的清单"
+      },
+      {
+        "signature": "aggregateReview(round, reviewOrder)",
+        "precondition": "已启用角色均完成",
+        "returns": [
+          "modelVerdict",
+          "有效 verdict",
+          "分项必须修改条数",
+          "检查覆盖原因"
+        ]
+      },
+      {
+        "signature": "renderReviewSummary(round)",
+        "returns": "确定性汇总正文"
+      }
+    ],
+    "malformed_count_implementation": "从逐轮完成记录推导，重放时不递增。",
+    "reuse": [
+      "现有 worker 适配器",
+      "项目锁",
+      "原子状态",
+      "Git 回滚归档",
+      "分支保护"
+    ],
+    "steps": [
+      {
+        "order": 1,
+        "deliver": [
+          "输入归一化",
+          "默认模板",
+          "解析与汇总",
+          "相关单元验收"
+        ]
+      },
+      {
+        "order": 2,
+        "deliver": [
+          "引擎接入",
+          "逐角色断点",
+          "自动退回循环",
+          "旧任务续跑"
+        ]
+      },
+      {
+        "order": 3,
+        "deliver": [
+          "人工门",
+          "状态与报告",
+          "中断与并发验收"
+        ]
+      },
+      {
+        "order": 4,
+        "deliver": [
+          "真实全栈试点",
+          "完整验收证据"
+        ]
+      }
+    ],
+    "independent_review": "每步完成后由另一个模型对照本规格审阅。",
+    "delivery_report": [
+      "代码完成情况",
+      "验收依据",
+      "真实试点状态"
+    ]
+  },
+  "acceptance": {
+    "offline_environment": "mock worker 和项目内临时 Git 仓库，不调用真实模型。",
+    "criteria": [
+      {
+        "id": "AC-01",
+        "requirement": "双角色、仅前端、仅后端三种配置均可验证；缺少审阅者、混用旧角色、清单类型错误、遗漏对应角色时给出字段名。"
+      },
+      {
+        "id": "AC-02",
+        "requirement": "两份自定义提示词分别生效；审阅者分别收到共同与本领域清单，designer 与 builder 收到全部启用清单，顺序及去重正确；空小节、未知占位符和模板路径边界继续有效。"
+      },
+      {
+        "id": "AC-03",
+        "requirement": "前后端两位每轮按顺序执行、均为 read；第二位提示词不包含本轮第一位结果；两位使用相同提交与检查路径。"
+      },
+      {
+        "id": "AC-04",
+        "requirement": "覆盖第 6 节所有组合，以及只有一位的情况；尚未完成时不生成有效通过结论。"
+      },
+      {
+        "id": "AC-05",
+        "requirement": "前端 REVISE、后端 APPROVED 后，两份意见均进入汇总和下一轮 builder 的输入；下一轮两位均重新审阅。"
+      },
+      {
+        "id": "AC-06",
+        "requirement": "前端通过、后端退回的情况同样完整循环；某位 BLOCKED 时，在两位正常完成后停为 blocked。"
+      },
+      {
+        "id": "AC-07",
+        "requirement": "前端完成后，在后端开始、执行中、完成落盘后三处中断；续跑不重复前端或已完成的后端。在同一分支改动项目文件或新增提交后续跑，须在调用后端前因版本失配停止并保留断点；恢复原版本后可继续。"
+      },
+      {
+        "id": "AC-08",
+        "requirement": "两位已完成、汇总或 decide 中途强制结束；恢复后不再调用模型，不重复累计格式异常或推进轮次。"
+      },
+      {
+        "id": "AC-09",
+        "requirement": "某一位调用失败重试时不会重做另一位；额度耗尽直接停止且保存精确角色断点；时间预算在两位审阅之间连续累计。"
+      },
+      {
+        "id": "AC-10",
+        "requirement": "每个角色独立验证两次连续格式异常；交替异常不误停；同轮重复 decide 不增加计数。"
+      },
+      {
+        "id": "AC-11",
+        "requirement": "human_review true 时只在完整汇总后暂停；approve、revise 保留原文并正确继续；单侧退回或检查失败不能被 approve 绕过。"
+      },
+      {
+        "id": "AC-12",
+        "requirement": "status、REPORT、事件和 meta 能区分两个角色；必须修改的分项与总数、原文与汇总路径一致。"
+      },
+      {
+        "id": "AC-13",
+        "requirement": "原分支不变，每轮仍只有一次构建提交；恢复文件保留；并发续跑、初始化断点和提交幂等测试继续通过。"
+      },
+      {
+        "id": "AC-14",
+        "requirement": "原单审阅任务与已停止旧运行可继续，不改写旧任务快照或过去的审阅原文。"
+      }
+    ],
+    "real_pilot": {
+      "project": "独立全栈试点",
+      "injected_defects": [
+        "一个窄屏布局问题",
+        "一个可复现的业务逻辑问题"
+      ],
+      "expected_loop": [
+        "前端指出布局问题",
+        "后端指出业务问题",
+        "保存双方原文与汇总",
+        "builder 修复两类问题",
+        "下一轮所有已启用审阅者重新审阅",
+        "双方 APPROVED 且检查通过"
+      ],
+      "human_review_scenario": [
+        "开启 human_review",
+        "完整审阅后暂停",
+        "人工填写意见退回",
+        "修改后双方复审",
+        "人工确认结束"
+      ],
+      "evidence": [
+        "截图",
+        "测试输出",
+        "逐轮提交",
+        "报告",
+        "角色元数据"
+      ]
+    }
+  }
+}

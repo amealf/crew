@@ -1,0 +1,28 @@
+{
+  "name": "crew-scheduler",
+  "version": "1.0.0",
+  "author": "yilimi (@amealf) and Codex",
+  "private": true,
+  "description": "Windows 上的命令行模型接力调度器",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "crew": "./bin/crew.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "doctor": "node bin/crew.js doctor",
+    "verify:live": "node scripts/verify-live.js",
+    "verify:resume": "node scripts/verify-resume.js",
+    "verify:pilot": "node scripts/verify-pilot.js"
+  },
+  "dependencies": {
+    "cross-spawn": "^7.0.6",
+    "yaml": "^2.8.1"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.65.1"
+  }
+}
