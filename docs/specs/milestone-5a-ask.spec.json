@@ -1,0 +1,145 @@
+{
+  "spec_id": "crew-milestone-5a-ask",
+  "title": "crew 里程碑 5a：命令行会审",
+  "spec_version": "1.0.0",
+  "source_spec": "docs/specs/milestone-5a-ask.zh.md",
+  "baseline": {
+    "spec": "SPEC.md",
+    "tag": "v1.0",
+    "commit": "af21e6f57910f443cfcfc6c68f15a77d97b77f74"
+  },
+  "scope": {
+    "goal": "并行向多个模型提问，支持独立追问、总结及人工确认写入决议本。",
+    "included": ["ask", "summarize", "decide", "meetings", "meeting"],
+    "later_milestones": ["5b 本地网页", "5c 会审接入 design 步骤"]
+  },
+  "cli": {
+    "ask_new": "crew ask <问题> [--with 工具:型号,...] [--no-summary]",
+    "ask_from_file": "crew ask --file <项目内 UTF-8 文件> [--with 工具:型号,...]",
+    "ask_follow_up": "crew ask <追问> [--meeting 编号] [--to 参会者] [--no-summary]",
+    "ask_retry": "crew ask --retry [编号]",
+    "summarize": "crew summarize [编号] [--by 工具:型号]",
+    "decide": "crew decide [编号] (--adopt 参会者 | --text <决定>) [--title <标题>] [--yes]",
+    "list": "crew meetings",
+    "show": "crew meeting [编号] [--json]",
+    "working_directory": "目标项目的 Git 仓库根目录，会审允许未提交改动。",
+    "latest_meeting": "按更新时间选择最近会审。追问需提供 --meeting 或 --to。单独使用 --to 时追问最近会审。",
+    "question_precedence": "--file 与位置参数同时提供时，以文件内容为准。"
+  },
+  "configuration": {
+    "path": ".crew/meeting.yaml",
+    "created_by": "crew init",
+    "participant_precedence": ["--with", ".crew/meeting.yaml", "内置默认名单"],
+    "allowed_tools": ["claude", "codex", "agy", "mock"],
+    "default_participants": [{"tool": "claude"}, {"tool": "codex"}, {"tool": "agy"}],
+    "default_summarizer": "第一位参会者",
+    "default_timeout_minutes": 15,
+    "participant_ids": "单一工具实例使用工具名。同工具多型号使用工具-型号，型号中的非字母、数字、横线或点替换为横线，省略型号时用 default。",
+    "validation": "空名单、未知工具、重复编号和追问带 --with 报错，未知配置字段警告。",
+    "fixed_participants_per_meeting": true,
+    "example": {
+      "participants": [
+        {"tool": "claude"},
+        {"tool": "codex"},
+        {"tool": "agy", "model": "gemini-4-argon-medium"}
+      ],
+      "summarizer": {"tool": "codex"},
+      "timeout_minutes": 15
+    }
+  },
+  "execution": {
+    "worker_mode": "read",
+    "transport": "UTF-8 prompt via stdin",
+    "participant_concurrency": "parallel",
+    "retry_delay_seconds": 30,
+    "automatic_retries_for_failure_or_timeout": 1,
+    "automatic_retries_for_quota": 0,
+    "manual_retry_statuses": ["pending", "failed", "timeout", "interrupted"],
+    "round_statuses": ["running", "done", "failed", "interrupted"],
+    "answer_statuses": ["pending", "ok", "failed", "timeout", "quota", "interrupted"],
+    "round_rules": [
+      "先保存问题和待处理状态，再调用每位收件人。回答完成后分别写入状态。",
+      "部分失败时保留成功回答。全部失败时退出 2，跳过总结。",
+      "至少一位成功且未关闭总结时，调用只读总结者。总结失败保留回答，可用 summarize 重写。",
+      "Ctrl+C 终止在跑的进程树，保留已完成回答，标记 interrupted 并退出 2。补跑时保留本轮的总结设置。",
+      "轮次结束后发桌面通知，通知失败写日志。会审使用独立的会审级 IPC 写锁。"
+    ],
+    "exit_codes": {
+      "0": "命令完成。会审轮次至少取得一份回答。",
+      "1": "输入、配置、路径或程序错误。",
+      "2": "会审轮次全员失败或中断，或者手动总结未完成。"
+    },
+    "history": {
+      "scope": "只携带本参会者此前收到的问题和自己的成功回答。",
+      "compaction_threshold_chars": 60000,
+      "compaction": "优先保留首轮和最近完整问答，中间轮只保留问题，并附完整记录路径。若必留内容本身超过阈值，仍保留必留内容。"
+    }
+  },
+  "storage": {
+    "directory": ".crew/meetings/<meetingId>/",
+    "id_format": "ask-YYYYMMDD-HHmmss，冲突时附加 -2、-3 等。",
+    "files": {
+      "state": "meeting.json",
+      "events": "events.log",
+      "question": "rounds/rN/question.md",
+      "worker_directory": "rounds/rN/<participantId>/",
+      "summary_worker_directory": "rounds/rN/summary/",
+      "summary": "rounds/rN/summary.md",
+      "subsequent_attempt": "<worker_directory>/attempt-N/"
+    },
+    "worker_files": ["prompt.md", "output.md", "raw.log", "stderr.log", "meta.json"],
+    "state_fields": ["meetingId", "title", "createdAt", "updatedAt", "participants", "summarizer", "timeoutMinutes", "rounds", "decisions"],
+    "round_fields": ["n", "question", "to", "status", "answers", "summary", "noSummary"],
+    "relative_paths_use_forward_slashes": true,
+    "state_write": "atomicJson"
+  },
+  "prompts": {
+    "roles": ["participant", "summarizer"],
+    "defaults": ["prompts/participant.md", "prompts/summarizer.md"],
+    "overrides": [".crew/prompts/participant.md", ".crew/prompts/summarizer.md"],
+    "added_placeholders": ["history", "question", "answer_paths"],
+    "summary_sections": ["一致", "分歧", "推荐", "决议草稿"],
+    "summary_input": "用项目内路径引用成功回答，其他参会者仅列状态。"
+  },
+  "decision_book": {
+    "path": "DECISIONS.md",
+    "confirmation_flag": "--yes",
+    "status": "Active",
+    "id": "扫描现有 D-数字 标题，取最大值加一，至少三位补零。",
+    "adopt": "采纳所选参会者最近一次成功回答的全文，并标注来源轮次。",
+    "title_precedence": ["--title", "总结中的推荐标题", "正文首行"],
+    "write_order": ["追加决议本", "更新会审 JSON"],
+    "recovery": "决议本写入后如 JSON 更新失败，再次确认时补记缺失记录，同一决议仅追加一次。",
+    "handoff": "后续任务的提示词引用 DECISIONS.md，crew run --dry-run 在提示词后显示该文件正文。"
+  },
+  "acceptance": {
+    "automated": {
+      "status": "passed",
+      "command": "npm test",
+      "total_passed": 78,
+      "baseline_tests": 66,
+      "milestone_tests": 12,
+      "test_file": "test/meeting.test.js",
+      "real_model_calls": false,
+      "covered": [
+        "并行回答与独立日志、部分失败、全员失败",
+        "单独追问、历史隔离及长历史压缩",
+        "中断补跑、额度保留、配置校验",
+        "决议预览与追加、写入失败后补记",
+        "会审写锁与运行锁隔离、JSON 输出与更新时间排序",
+        "多行 UTF-8 问题、切换总结者、决议进入任务预览"
+      ]
+    },
+    "live": {
+      "status": "pending_user_run",
+      "instructions": "README.md#5a-真机验收",
+      "checks": [
+        "三个真实工具回答首轮，自动总结包含四节。",
+        "用 --to codex --no-summary 只调用 Codex，确认它延续自己的首轮回答。",
+        "预览并确认采纳结果，核对 DECISIONS.md 中的编号、来源和正文。",
+        "提交决议，检查 crew run pomodoro --dry-run 中的对应条目。",
+        "从 UTF-8 文件读取多行中文问题并核对输出。"
+      ]
+    }
+  }
+}

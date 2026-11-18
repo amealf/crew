@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { projectPath } from './paths.js';
 
-const placeholders = new Set(['goal', 'decisions', 'checklist', 'design_path', 'round', 'prev_review_path', 'prev_check_path', 'diff_path', 'check_path', 'screenshot_paths', 'malformed_note']);
+const placeholders = new Set(['goal', 'decisions', 'checklist', 'design_path', 'round', 'prev_review_path', 'prev_check_path', 'diff_path', 'check_path', 'screenshot_paths', 'malformed_note', 'history', 'question', 'answer_paths']);
 const pattern = /{{\s*([^{}]*?)\s*}}/g;
 const defaultRoot = fileURLToPath(new URL('../prompts/', import.meta.url));
 
@@ -15,7 +15,7 @@ function valueText(value, name) {
 }
 
 export async function renderPrompt(role, context = {}) {
-  if (!['designer', 'builder', 'reviewer'].includes(role)) throw new Error(`未知提示词角色：${role}`);
+  if (!['designer', 'builder', 'reviewer', 'participant', 'summarizer'].includes(role)) throw new Error(`未知提示词角色：${role}`);
   const cwd = context.cwd ?? process.cwd();
   const override = await projectPath(cwd, path.join('.crew', 'prompts', `${role}.md`));
   let template;

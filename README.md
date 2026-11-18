@@ -4,7 +4,7 @@
 
 创作者：yilimi（[@amealf](https://github.com/amealf)）与 Codex。
 
-crew 读取 YAML 任务单，按「设计 → 实现 → 检查 → 审阅」接力执行，直到通过或命中停止条件。当前代码覆盖 `SPEC.md` 的里程碑 1–4：四个工人适配器、循环引擎、检查与截图、人工批准、断点续跑、运行报告和桌面通知，并支持每轮审阅后的人工确认与退回。展示页面按本次要求跳过；会议与 `ask` 属于尚待补充规格的里程碑 5。
+crew 读取 YAML 任务单，按「设计 → 实现 → 检查 → 审阅」接力执行，直到通过或命中停止条件。里程碑 1–4 提供四个工人适配器、循环引擎、检查与截图、人工批准、断点续跑、运行报告和桌面通知。里程碑 5a 提供命令行会审（`crew ask`）。
 
 三个工具的真实调用已验证，强制结束进程后的续跑已在真机验证。Windows 桌面通知已实际显示，用户确认「看到了」。Astra／Claude／Argon 番茄钟试点已完整跑通「首轮退回 → 修改 → 第二轮通过」，记录见文末。
 
@@ -62,6 +62,61 @@ crew run example
 | `crew revise [运行编号] --note "修改意见"` | 将等待确认的本轮审阅退回，保存人工意见并进入下一轮 |
 | `crew resume [运行编号]` | 从停止或异常中断时的下一步继续 |
 | `crew resume [运行编号] --extend-hours 12` | 续跑，同时给原时间上限增加 12 小时 |
+
+## 会审
+
+规格：[JSON](docs/specs/milestone-5a-ask.spec.json) · [原始实现规格](docs/specs/milestone-5a-ask.zh.md)
+
+在目标项目的 Git 仓库根目录先运行 `crew init`，生成可选的 `.crew/meeting.yaml` 和会审记录的忽略规则。会审可以在有未提交改动的工作区进行，参会者和总结者均使用适配器的只读模式。
+
+| 命令 | 用途 |
+| --- | --- |
+| `crew ask "问题"` | 新开会审，并行询问参会者 |
+| `crew ask --file question.md` | 从项目内的 UTF-8 文件读取多行问题 |
+| `crew ask "追问" --meeting <编号>` | 在同一会审中追问全体 |
+| `crew ask "追问" --to codex` | 在最近会审中只追问 Codex，可另加 `--meeting <编号>` |
+| `crew ask --retry [编号]` | 补跑最近一轮中断、超时或失败的回答 |
+| `crew summarize [编号] --by codex` | 为最近一轮重新总结，`--by` 可省略 |
+| `crew decide [编号] --adopt codex` | 预览采纳 Codex 最近一次成功回答的决议 |
+| `crew decide [编号] --text "决定内容" --title "标题" --yes` | 确认写入自拟决议 |
+| `crew meetings` | 按更新时间倒序列出会审 |
+| `crew meeting [编号] [--json]` | 查看完整问答或读取 JSON |
+
+参会者写成 `工具` 或 `工具:型号`。新会审的 `--with` 接受逗号分隔的名单，例如 `--with claude,codex,agy:gemini-4-argon-medium`。也可在 `.crew/meeting.yaml` 中设置 `participants`、`summarizer`、`timeout_minutes`。默认用 Claude、Codex 和 agy，各用工具自己的默认型号，由第一位参会者总结，每次调用超时 15 分钟。同一个工具有多个型号时，用 `crew meeting --json` 里的参会者 `id` 做 `--to` 或 `--adopt`。用 `--no-summary` 可跳过本轮自动总结。
+
+记录在 `.crew/meetings/<编号>/`。`meeting.json` 记录成员、各轮状态、结果路径和决议，`events.log` 记录每次调用。`rounds/rN/question.md` 保存问题，每位参会者的目录保存提示词、回答、日志和元数据，`rounds/rN/summary.md` 保存总结。重试保存在角色目录的 `attempt-N/` 下。遇到额度限制时，等额度恢复后可在原会审发起新一轮。
+
+`crew decide` 带 `--yes` 才追加 `DECISIONS.md`。条目以 `## D-001 标题` 开始，下面是 `状态：Active`、日期、会审编号和轮次，以及完整决议正文。省略 `--title` 时优先取总结中的推荐标题，再取正文首行。决议提交后，后续 `crew run` 的模型提示词会引用该文件，可用 `--dry-run` 查看。
+
+### 5a 真机验收
+
+状态：待用户在 PowerShell 执行。下面的会审命令会消耗模型额度。先按「开始使用」定义 `crew`，再切到自己的番茄钟试点仓库并运行：
+
+```powershell
+crew init
+crew ask "这个项目下一步最值得加的功能是什么？说明理由"
+crew ask "你的方案具体要改哪些文件？" --to codex --no-summary
+crew decide --adopt codex
+crew decide --adopt codex --yes
+git add -- DECISIONS.md
+git commit -m "Add pomodoro meeting decision"
+crew run pomodoro --dry-run
+@'
+计时器暂停后恢复时，哪些行为需要测试？
+请分两点回答，并引用相关文件。
+'@ | Set-Content -LiteralPath '.crew/meeting-question.md' -Encoding utf8
+crew ask --file '.crew/meeting-question.md'
+```
+
+看第一轮是否有三位回答和「一致／分歧／推荐／决议草稿」四节总结；第二轮是否只有 Codex 并延续它上一轮的建议；最后核对决议编号、预览中引用的决议正文及多行中文。`crew init` 新生成的配置和忽略规则可按项目需要提交。
+
+单独追问时，`--to` 限定参会者。真机步骤加上 `--no-summary`，只调用 Codex 一次；普通追问仍会另调总结者。
+
+### 5a 实现说明
+
+`--to` 未写 `--meeting` 时使用最近会审，`--file` 与位置参数同时提供时以文件内容为准。`--retry` 补跑未完成、失败、超时或中断的回答，保留本轮 `--no-summary` 的设置。历史优先保留该参会者的首轮和最近完整问答；如果它们和必须保留的中间问题本身超过 60,000 字符，仍保留这些内容。总结失败时保留回答，可用 `crew summarize` 重写。
+
+运行时提示词沿用 `DECISIONS.md` 路径引用。`crew run --dry-run` 会在首棒提示词之后另外打印该文件，方便核对新决议。
 
 ## 任务单
 

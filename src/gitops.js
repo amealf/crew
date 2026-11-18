@@ -37,14 +37,18 @@ function parseStatus(text) {
   return entries;
 }
 
-export async function preflight(cwd) {
+export async function assertProjectRoot(cwd) {
   let top;
   try { top = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim(); }
-  catch { throw new Error('当前目录不是 git 仓库。请先运行 git init，并提交项目初始文件，再从项目根目录运行 crew。'); }
+  catch { throw new Error('当前目录不是 git 仓库。请先运行 git init，再从项目根目录运行 crew。'); }
   const actualRoot = await realpath(cwd);
   const actualTop = await realpath(top);
   const samePath = process.platform === 'win32' ? actualRoot.toLowerCase() === actualTop.toLowerCase() : actualRoot === actualTop;
   if (!samePath) throw new Error(`请从 git 仓库根目录运行 crew：${actualTop}`);
+}
+
+export async function preflight(cwd) {
+  await assertProjectRoot(cwd);
   try { await head(cwd); }
   catch { throw new Error('仓库还没有初始提交。请先执行 git add -A 和 git commit，再运行 crew。'); }
   const entries = parseStatus(await git(cwd, ['status', '--porcelain=v1', '-z', '--untracked-files=all']));

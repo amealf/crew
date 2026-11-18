@@ -29,7 +29,7 @@ async function fixture(entries, changes, action) {
   await writeFile(path.join(cwd, 'wait.cjs'), `const fs = require('node:fs');
 const label = process.argv[2] || 'wait';
 fs.writeFileSync('.local/check-' + label + '-started.txt', String(Date.now()));
-setTimeout(() => fs.writeFileSync('.local/check-' + label + '-completed.txt', String(Date.now())), 2500);
+setTimeout(() => fs.writeFileSync('.local/check-' + label + '-completed.txt', String(Date.now())), 4000);
 `, 'utf8');
   await writeFile(path.join(cwd, 'after-check.cjs'), "require('node:fs').writeFileSync('.local/check-after-started.txt', 'ran');\n", 'utf8');
   const sheet = {
@@ -78,15 +78,18 @@ test('构建后若切回main，提交前拒绝继续且原分支不增加提交'
 });
 
 test('整个检查步骤共享剩余总预算，多条命令不会成倍延长max_hours', async () => {
+  // Leave room for Git setup under parallel Windows load. Two four-second
+  // commands still cannot fit inside the same six-second run budget.
+  const budgetMs = 6000;
   await fixture([build, approved], {
     flow: [{ loop: ['build', 'check', 'review'] }],
     checks: { commands: ['node wait.cjs first', 'node wait.cjs second', 'node after-check.cjs'] },
-    stop_when: { max_hours: 0.001 },
+    stop_when: { max_hours: budgetMs / 3_600_000 },
   }, async ({ cwd, invoke, consumed }) => {
     const result = await invoke();
     assert.equal(result.state.status, 'stopped');
     assert.equal(result.state.stopReason, 'max_hours');
-    assert.ok(result.state.elapsedMs >= 3600, `elapsedMs=${result.state.elapsedMs}`);
+    assert.ok(result.state.elapsedMs >= budgetMs, `elapsedMs=${result.state.elapsedMs}`);
     // elapsedMs also includes taskkill/process drain time, which depends on
     // concurrent Windows load. Observe the shared deadline's cancellation
     // instead of imposing an unrelated one-second OS-cleanup allowance.

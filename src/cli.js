@@ -9,6 +9,8 @@ import { loadTaskSheet } from './tasksheet.js';
 import { loadRun } from './runlog.js';
 import { runTask, resumeRun, promptContext, duration } from './engine.js';
 import { renderPrompt } from './prompts.js';
+import { meetingExample } from './meeting-config.js';
+import { meetingCommands, meetingMain } from './meeting-cli.js';
 
 const require = createRequire(import.meta.url);
 const help = `crew 命令行调度器
@@ -23,8 +25,15 @@ const help = `crew 命令行调度器
   crew approve [运行编号]           批准设计或确认当前审阅结论并继续
   crew revise [运行编号] --note "人工修改意见"  退回当前审阅，进入下一轮修改
   crew resume [运行编号] [--extend-hours 12]  续跑停止或异常中断的运行
+  crew ask ["问题"] [--file 路径] [--with 工具:型号,...] [--no-summary]
+  crew ask "追问" [--meeting 会审编号] [--to 参会者]
+  crew ask --retry [会审编号]         补跑最近一轮未完成或失败的回答
+  crew summarize [会审编号] [--by 工具:型号]  为最近一轮重新总结
+  crew decide [会审编号] (--adopt 参会者 | --text "决定") [--title "标题"] [--yes]
+  crew meetings                      列出会审
+  crew meeting [会审编号] [--json]    查看问答、总结和决议
 
-请在项目的 git 仓库根目录运行。运行记录保存在 .crew/runs/。`;
+请在项目的 git 仓库根目录运行。运行记录保存在 .crew/runs/，会审记录保存在 .crew/meetings/。`;
 
 const example = `# 一个最小任务单。保存后把目标和检查命令换成项目实际要求。
 goal: |
@@ -61,11 +70,16 @@ export async function initProject(cwd, log = console.log) {
   const examplePath = await projectPath(cwd, '.crew/tasks/example.yaml');
   try { await writeFile(examplePath, example, { encoding: 'utf8', flag: 'wx' }); }
   catch (error) { if (error.code !== 'EEXIST') throw error; }
+  const meetingPath = await projectPath(cwd, '.crew/meeting.yaml');
+  try { await writeFile(meetingPath, meetingExample, { encoding: 'utf8', flag: 'wx' }); }
+  catch (error) { if (error.code !== 'EEXIST') throw error; }
   const ignorePath = await projectPath(cwd, '.gitignore');
   let ignore = '';
   try { ignore = await readFile(ignorePath, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  if (!ignore.split(/\r?\n/).some(line => ['.crew/runs/', '/.crew/runs/'].includes(line.trim()))) {
-    await writeFile(ignorePath, `${ignore}${ignore && !ignore.endsWith('\n') ? '\n' : ''}.crew/runs/\n`, 'utf8');
+  const rules = ignore.split(/\r?\n/).map(line => line.trim().replace(/^\//, ''));
+  const missing = ['.crew/runs/', '.crew/meetings/'].filter(rule => !rules.includes(rule));
+  if (missing.length) {
+    await writeFile(ignorePath, `${ignore}${ignore && !ignore.endsWith('\n') ? '\n' : ''}${missing.join('\n')}\n`, 'utf8');
   }
   log(`任务目录已准备好：${examplePath}\n编辑任务单并提交项目改动后，运行 crew run example。`);
 }
@@ -86,6 +100,7 @@ async function dryRun(cwd, name, log) {
   const runDir = await projectPath(cwd, '.crew/runs/<运行编号>');
   const context = await promptContext({ cwd, sheet, state, runDir });
   log(`\n首棒：${role}（${sheet.roles[role].tool}）\n\n${await renderPrompt(role, context)}`);
+  if (context.decisions) log(`\n提示词引用的 DECISIONS.md\n\n${await readFile(context.decisions, 'utf8')}`);
 }
 
 function runOptions(args, allowExtend) {
@@ -178,13 +193,14 @@ export async function main(args, options = {}) {
     await taskFile(cwd, rest[0]);
   } else if (command === 'doctor') {
     if (rest.some(arg => arg !== '--live') || rest.length > 1) throw new Error('参数错误，请使用 crew doctor 或 crew doctor --live。');
-  } else if (!['approve', 'revise', 'resume'].includes(command)) throw new Error(`未知命令「${command}」，请运行 crew --help。`);
+  } else if (!['approve', 'revise', 'resume', ...meetingCommands].includes(command)) throw new Error(`未知命令「${command}」，请运行 crew --help。`);
   const controller = new AbortController();
   const stop = () => controller.abort();
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);
   try {
     const shared = { ...options, cwd, log, signal: options.signal ?? controller.signal };
+    if (meetingCommands.includes(command)) return await meetingMain(command, rest, shared);
     if (command === 'doctor') return (await doctor({ ...shared, live: rest.includes('--live') })).exitCode;
     if (command === 'run') return (await runTask({ ...shared, taskName: rest[0] })).exitCode;
     if (command === 'revise') return (await resumeRun({ ...shared, ...reviseOptions(rest), approve: true })).exitCode;

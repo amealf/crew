@@ -1,6 +1,7 @@
 node_modules/
 .local/
 .crew/runs/
+.crew/meetings/
 output/
 # Superseded local specification; use the structured JSON specification.
 docs/specs/reviewer-split-20261117.zh.md

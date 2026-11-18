@@ -2,16 +2,27 @@ import path from 'node:path';
 import { mkdir, readFile, writeFile, rename, appendFile, readdir, stat, realpath } from 'node:fs/promises';
 import { randomUUID, createHash } from 'node:crypto';
 import net from 'node:net';
+import { setTimeout as delay } from 'node:timers/promises';
 import { projectPath } from './paths.js';
 
 const writeQueues = new Map();
 export async function atomicJson(file, value) {
+  return atomicText(file, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+export async function atomicText(file, content) {
   const previous = writeQueues.get(file) ?? Promise.resolve();
-  const serialized = `${JSON.stringify(value, null, 2)}\n`;
   const pending = previous.catch(() => {}).then(async () => {
     const temp = `${file}.tmp-${process.pid}-${randomUUID()}`;
-    await writeFile(temp, serialized, { encoding: 'utf8', flag: 'wx' });
-    await rename(temp, file);
+    await writeFile(temp, content, { encoding: 'utf8', flag: 'wx' });
+    for (let attempt = 0; ; attempt += 1) {
+      try { await rename(temp, file); break; }
+      catch (error) {
+        // A concurrent reader or scanner can briefly block replacement on Windows.
+        if (process.platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt === 5) throw error;
+        await delay(20 * (attempt + 1));
+      }
+    }
   });
   writeQueues.set(file, pending);
   try { await pending; }
@@ -31,7 +42,7 @@ export async function event(runDir, data) {
   await appendFile(await runFile(runDir, 'events.log'), `${JSON.stringify({ time: new Date().toISOString(), ...data })}\n`, 'utf8');
 }
 
-function stamp(date) {
+export function stamp(date) {
   const two = n => String(n).padStart(2, '0');
   return `${date.getFullYear()}${two(date.getMonth() + 1)}${two(date.getDate())}-${two(date.getHours())}${two(date.getMinutes())}${two(date.getSeconds())}`;
 }
@@ -116,31 +127,37 @@ export async function nextStepDir(runDir, state, step) {
   return directory;
 }
 
-export async function acquireLock(cwd) {
+export async function acquireIpcLock(cwd, scope, busyMessage) {
   const root = await realpath(cwd);
-  const runs = await projectPath(root, path.join('.crew', 'runs'));
-  await mkdir(runs, { recursive: true });
   const identity = process.platform === 'win32' ? root.toLowerCase() : root;
-  const hash = createHash('sha256').update(identity).digest('hex').slice(0, 32);
+  const hash = createHash('sha256').update(scope ? `${identity}\0${scope}` : identity).digest('hex').slice(0, 32);
   // Local IPC supplies an atomic OS-owned lease. A killed process releases it
   // automatically, without deleting lock files or racing stale-file takeovers.
   const address = process.platform === 'win32' ? `\\\\.\\pipe\\crew-scheduler-${hash}` : `\0crew-scheduler-${hash}`;
   const server = net.createServer(socket => socket.destroy());
   await new Promise((resolve, reject) => {
-    const fail = error => reject(new Error(error.code === 'EADDRINUSE' ? '这个项目已有 crew 运行中。请先等待它结束，或中断原进程后再继续。' : `无法取得运行锁：${error.message}`));
+    const fail = error => reject(Object.assign(new Error(error.code === 'EADDRINUSE' ? busyMessage : `无法取得运行锁：${error.message}`), { code: error.code }));
     server.once('error', fail);
     server.listen(address, () => { server.removeListener('error', fail); resolve(); });
   });
   server.unref();
+  return () => new Promise(resolve => server.close(resolve));
+}
+
+export async function acquireLock(cwd) {
+  const root = await realpath(cwd);
+  const runs = await projectPath(root, path.join('.crew', 'runs'));
+  await mkdir(runs, { recursive: true });
   const lockPath = await projectPath(root, path.join(runs, 'lock.json'));
+  const release = await acquireIpcLock(root, '', '这个项目已有 crew 运行中。请先等待它结束，或中断原进程后再继续。');
   const owner = randomUUID();
   try { await atomicJson(lockPath, { pid: process.pid, owner, acquiredAt: new Date().toISOString() }); }
-  catch (error) { await new Promise(resolve => server.close(resolve)); throw error; }
+  catch (error) { await release(); throw error; }
   let released = false;
   return async () => {
     if (released) return;
     released = true;
     try { await atomicJson(lockPath, null); }
-    finally { await new Promise(resolve => server.close(resolve)); }
+    finally { await release(); }
   };
 }
